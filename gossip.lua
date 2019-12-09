@@ -1,19 +1,20 @@
 return (function()
     local constants = require('constants');
     local utils = require('utils');
+    local network = require('network');
 
     local gossip = {
+        started = false,
         config = constants.defaultConfig;
         state = constants.initialState,
         setConfig = utils.setConfig,
-        pickRandomNode = utils.pickRandomNode,
-        receiveData = utils.receiveData,
-        sendData = utils.sendData,
+        pickRandomNode = network.pickRandomNode,
+        receiveData = network.receiveData,
+        sendData = network.sendData,
         logInfo = utils.logInfo,
         logVerbose = utils.logVerbose,
-        start = utils.start
+        start = state.start
     };
-    constants = nil;
     utils = nil;
 
     return gossip;
