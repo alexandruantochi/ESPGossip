@@ -1,15 +1,16 @@
 local state = {};
 
 local function initRev(gossip)
+    gossip.currentState.ip = wifi.sta.getip();
     local revFile = 'gossip/rev.dat';
     if (file.exists(revFile)) then
         local revision = file.getcontents(revFile) + 1;
         file.putcontents(revFile, revision);
-        gossip.state.revision = revision;
-        gossip:logVerbose('Updated revision to ' .. gossip.state.revision);
+        gossip.currentState.revision = revision;
+        gossip:logVerbose('Updated revision to ' .. gossip.currentState.revision);
     else
-        file.putcontents(revFile, gossip.state.revision);
-        gossip:logVerbose('Revision set to ' .. gossip.state.revision);
+        file.putcontents(revFile, gossip.currentState.revision);
+        gossip:logVerbose('Revision set to ' .. gossip.currentState.revision);
     end
 end
 
@@ -28,3 +29,5 @@ end
 state.updateHeartbeat = function(self)
     self.state.heartbeat = tmr.time();
 end
+
+return state;

@@ -1,5 +1,6 @@
 # Credentials
 credentials.lua
+.nodemcutool
 
 # Compiled Lua sources
 luac.out

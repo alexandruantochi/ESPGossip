@@ -7,7 +7,14 @@ end
 
 network.receiveData = function(self)
     return function(socket, data, port, ip)
-        print('Received : ' .. data .. ' from ip: ' .. ip .. ' on port ' .. port);
+        print('Received from:' .. ip);
+        local data = sjson.decode(data);
+        for ip, nodeState in pairs(data) do
+            print('Ip: ' .. ip);
+            if nodeState.status ~= nil then
+                print('Status: ' .. nodeState.status);
+            end
+        end
     end
 end
 
@@ -16,3 +23,5 @@ network.sendData = function(self)
         print('Sent info to ' .. ip);
     end
 end
+
+return network;

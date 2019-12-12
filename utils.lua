@@ -1,5 +1,22 @@
 local utils = {};
 
+local function compareData(data0, data1)
+    if data0.revision > data1.revision then
+        return 0;
+    elseif data1.revision > data0.revision then
+        return 1;
+    end
+    
+    if data0.heartBeat > data1.heartBeat then
+        return 0;
+    elseif data1.heartBeat > data0.heartBeat then
+        return 1;
+    else
+        return -1;
+    end
+end
+
+
 utils.logVerbose = function(self, message)
     if (self.config.debugLevel < 1) then
         print(message);
@@ -12,59 +29,35 @@ utils.logInfo = function(self, message)
     end
 end
 
-utils.pickRandomNode = function(self)
-    local randomListPick = node.random(1, tables.getn(self.config.seedList));
-    return self.config.seedList[randomListPick];
-end
-
 utils.setConfig = function(self, userConfig)
     for k, v in pairs(userConfig) do
         if (self.config[k] ~= nil and type(self.config[k]) == type(v)) then
-            self.logVerbose('Setting ' .. k);
+            self:logVerbose('Setting ' .. k);
             self.config[k] = v;
         end
     end
 end
 
-utils.receiveData = function(self)
-    return function(socket, data, port, ip)
-        print('Received : ' .. data .. ' from ip: ' .. ip .. ' on port ' .. port);
+utils.updateAndComputeDiff = function(self, receivedData)
+    local diff = {}
+    for ip in receivedData do
+        if self.networkState[ip] ~= nil then
+            local dataResult = compareData(self.networkState[ip], receivedData[ip]);
+            if dataResult == 0 then
+                table.insert(diff, self.networkState[ip]);
+            elseif dataResult == 1 then
+                self.networkState[ip] = receivedData[ip];
+            end
+        end
     end
-end
 
-utils.sendData = function(self)
-    return function(port, ip, data)
-        print('Sent info to ' .. ip);
+    for ip in self.networkState do
+        if receivedData[ip] == nil then
+            table.insert(diff, self.networkState[ip]);
+        end
     end
-end
 
-local function initRev(gossip)
-    local revFile = 'gossip/rev.dat';
-    if (file.exists(revFile)) then
-        local revision = file.getcontents(revFile) + 1;
-        file.putcontents(revFile, revision);
-        gossip.state.revision = revision;
-        gossip:logVerbose('Updated revision to ' .. gossip.state.revision);
-    else
-        file.putcontents(revFile, gossip.state.revision);
-        gossip:logVerbose('Revision set to ' .. gossip.state.revision);
-    end
-end
-
-utils.start = function(self)
-    if self.started then
-        self:logInfo('Gossip already started.');
-        return;
-    end
-    initRev(self);
-    self.inboundSocket = net.createUDPSocket();
-    self.inboundSocket:listen(self.config.inboundPort);
-    self.inboundSocket:on('receive', self:receiveData());
-    self.started = true;
-end
-
-utils.updateHeartbeat = function(self)
-    self.state.heartbeat = tmr.time();
+    return diff;
 end
 
 return utils;
