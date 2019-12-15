@@ -10,7 +10,7 @@ return (function()
         currentState = constants.initialState,
         setConfig = utils.setConfig,
         pickRandomNode = network.pickRandomNode,
-        receiveData = network.receiveData,
+        stateUpdate = network.stateUpdate,
         sendData = network.sendData,
         logInfo = utils.logInfo,
         logVerbose = utils.logVerbose,

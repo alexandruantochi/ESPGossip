@@ -22,7 +22,7 @@ state.start = function(self)
     initRev(self);
     self.inboundSocket = net.createUDPSocket();
     self.inboundSocket:listen(self.config.inboundPort);
-    self.inboundSocket:on('receive', self:receiveData());
+    self.inboundSocket:on('receive', self:stateUpdate());
     self.started = true;
 end
 
