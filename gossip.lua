@@ -96,6 +96,24 @@ network.pickRandomNode = function(self)
     return self.config.seedList[randomListPick];
 end
 
+local synNetworkState = function(self, updateData)
+    local replyDiff = updateNetworkState(self, updateData);
+    if table.getn(replyDiff) > 0 then
+        replyDiff.type = constants.ACK;
+        self:logVerbose('Replying with updated data for '..table.getn(replyDiff)..' nodes.');
+        -- reply with difference here
+    else
+        -- reply with just ack
+    end
+end
+
+local ackNetworkState = function(self, updateData)
+    for k,v in pairs(updateData) do
+        -- do a check before update?
+        self.networkState[k] = v;
+    end
+end
+
 network.stateUpdate = function(self)
     return function(socket, data, port, ip)
         if self.networkState[ip] ~= nil then
@@ -108,10 +126,15 @@ network.stateUpdate = function(self)
             self:logVerbose('Error msg: '..updateData..'\n'..data);
             return;
         end
-        local replyDiff = updateNetworkState(self, updateData);
-        if table.getn(replyDiff) > 0 then
-            self:logVerbose('Replying with updated data for '..table.getn(replyDiff)..' nodes.');
-            sendUpdate()
+        local updateDataType = updateData.type;
+        updateData.type = nil;
+        if updateDataType == constants.SYN then
+            synNetworkState(self, updateData);
+        elseif updateDataType == constants.ACK then
+            ackNetworkState(self, updateData);
+        else
+            self:logVerbose('Invalid data comming from ip '..ip..'. No type specified');
+            return;
         end
     end
 end
@@ -172,6 +195,12 @@ constants.defaultConfig = {
 constants.initialState = {
     revision = 1,
     heartbeat = 0,
+}
+
+constants.updateType =
+{
+    ACK = 'ACK',
+    SYN = 'SYN'
 }
 
 -- Return
