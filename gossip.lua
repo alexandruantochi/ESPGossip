@@ -19,26 +19,7 @@ local function initRev(gossip)
     end
 end
 
--- State
-
-state.start = function(self)
-    if self.started then
-        self:logInfo('Gossip already started.');
-        return;
-    end
-    initRev(self);
-    self.outbounSocket = net.createUDPSocket();
-    self.inboundSocket = net.createUDPSocket();
-    self.inboundSocket:listen(self.config.inboundPort);
-    self.inboundSocket:on('receive', self:stateUpdate());
-    self.started = true;
-end
-
-state.updateHeartbeat = function(self)
-    self.state.heartbeat = tmr.time();
-end
-
--- Network
+-- Utils
 
 local function compareData(data0, data1)
     if data1.revision == nil or data1.heartBeat == nil then
@@ -62,13 +43,53 @@ local function compareData(data0, data1)
     return -1;
 end
 
+utils.logVerbose = function(self, message)
+    if (self.config.debugLevel < 1) then
+        print(message);
+    end
+end
+
+utils.logInfo = function(self, message)
+    if (self.config.debugLevel < 2) then
+        print(message);
+    end
+end
+
+utils.setConfig = function(self, userConfig)
+    for k, v in pairs(userConfig) do
+        if (self.config[k] ~= nil and type(self.config[k]) == type(v)) then
+            self:logVerbose('Setting ' .. k);
+            self.config[k] = v;
+        end
+    end
+end
+
+-- State
+
+state.start = function(self)
+    if self.started then
+        self:logInfo('Gossip already started.');
+        return;
+    end
+    initRev(self);
+    self.inboundSocket = net.createUDPSocket();
+    self.inboundSocket:listen(self.config.comPort);
+    self.inboundSocket:on('receive', self:stateUpdate());
+    self.started = true;
+end
+
+state.updateHeartbeat = function(self)
+    self.state.heartbeat = tmr.time();
+end
+
+-- Network
+
 local function updateNetworkState(self, updateData)
     local diff = {};
-
     for ip, stateData in pairs(self.networkState) do
         if updateData[ip] == nil then
             self:logVerbose('Adding data to replyData for ip ' ..ip);
-            table.insert(diff, stateData);
+            diff[ip]=stateData;
         end
     end
 
@@ -96,21 +117,24 @@ network.pickRandomNode = function(self)
     return self.config.seedList[randomListPick];
 end
 
-local synNetworkState = function(self, updateData)
-    local replyDiff = updateNetworkState(self, updateData);
-    if table.getn(replyDiff) > 0 then
-        replyDiff.type = constants.ACK;
-        self:logVerbose('Replying with updated data for '..table.getn(replyDiff)..' nodes.');
-        -- reply with difference here
-    else
-        -- reply with just ack
-    end
+local replyAck = function(self, ip, diff)
+    local outboundSocket = net.createUDPSocket();
+    self:logVerbose('Replying to '..ip..' with '..table.getn(diff)..' entries.');
+    diff.type = constants.ACK;
+    outboundSocket:send(self.config.comPort, ip, sjson.encode(diff));
+end
+
+local synNetworkState = function(self, ip, updateData)
+    local diff = updateNetworkState(self, updateData);
+    replyAck(self, ip, diff);
 end
 
 local ackNetworkState = function(self, updateData)
     for k,v in pairs(updateData) do
-        -- do a check before update?
-        self.networkState[k] = v;
+        if compareData(self.networkState[k], updateData[k]) == 1 then
+            self:logVerbose('Updating ack data for '..k);
+            self.networkState[k] = v;
+        end
     end
 end
 
@@ -126,44 +150,15 @@ network.stateUpdate = function(self)
             self:logVerbose('Error msg: '..updateData..'\n'..data);
             return;
         end
-        local updateDataType = updateData.type;
+        local updateType = updateData.type;
         updateData.type = nil;
-        if updateDataType == constants.SYN then
-            synNetworkState(self, updateData);
-        elseif updateDataType == constants.ACK then
+        if updateType == constants.updateType.SYN then
+            synNetworkState(self, ip, updateData);
+        elseif updateType == constants.updateType.ACK then
             ackNetworkState(self, updateData);
         else
             self:logVerbose('Invalid data comming from ip '..ip..'. No type specified');
             return;
-        end
-    end
-end
-
-network.replyDiff = function(self)
-    return function(port, ip, data)
-        print('Sent info to ' .. ip);
-    end
-end
-
--- Utils
-
-utils.logVerbose = function(self, message)
-    if (self.config.debugLevel < 1) then
-        print(message);
-    end
-end
-
-utils.logInfo = function(self, message)
-    if (self.config.debugLevel < 2) then
-        print(message);
-    end
-end
-
-utils.setConfig = function(self, userConfig)
-    for k, v in pairs(userConfig) do
-        if (self.config[k] ~= nil and type(self.config[k]) == type(v)) then
-            self:logVerbose('Setting ' .. k);
-            self.config[k] = v;
         end
     end
 end
@@ -176,16 +171,16 @@ constants.debugLevel = {
 }
 
 constants.nodeStatus = {
-    DOWN = 0,
-    SUSPECT = 1,
-    UP = 2
+    REMOVE = 0,
+    DOWN = 1,
+    SUSPECT = 2,
+    UP = 3
 }
 
 constants.defaultConfig = {
     seedList = {},
     roundInterval = 10000,
-    outbounPort = 5000,
-    inboundPort = 5000,
+    comPort = 5000,
     pickStrategy = 'random',
     partnerPick = 1,
     timeout = 5000,
