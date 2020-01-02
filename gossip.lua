@@ -1,36 +1,33 @@
+local gossip = {};
 local constants = {};
 local utils = {};
 local network = {};
 local state = {};
 
--- Gossip
-
-local function initRev(gossip)
-    gossip.currentState.ip = wifi.sta.getip();
-    local revFile = 'gossip/rev.dat';
-    if (file.exists(revFile)) then
-        local revision = file.getcontents(revFile) + 1;
-        file.putcontents(revFile, revision);
-        gossip.currentState.revision = revision;
-        gossip:logVerbose('Updated revision to ' .. gossip.currentState.revision);
-    else
-        file.putcontents(revFile, gossip.currentState.revision);
-        gossip:logVerbose('Revision set to ' .. gossip.currentState.revision);
-    end
-end
-
 -- Utils
 
-local function synNodeDataValid(synNodeData)
-    if synNodeData.revision == nil or synNodeData.heartbeat == nil or synNodeData.state == nil then
-        return false;
+utils.logVerbose = function(message)
+    if (gossip.config.debugLevel <= constants.debugLevel.VERBOSE) then
+        print(message);
     end
-    return true;
 end
 
-local function compareNodeData(data0, data1)
-    if not synNodeDataValid(data1) then
+utils.logInfo = function(message)
+    if (gossip.config.debugLevel <= constants.debugLevel.INFO) then
+        print(message);
+    end
+end
+
+utils.isNodeDataValid = function(nodeData)
+    return nodeData.revision ~= nil and nodeData.heartbeat ~= nil and nodeData.state ~= nil
+end
+
+utils.compareNodeData = function(data0, data1)
+    if not utils.isNodeDataValid(data1) then
         return 0;
+    end
+    if data0.revision == data1.revision and data0.heartbeat == data1.heartbeat and data0.state == data1.state then
+        return -1;
     end
     if data0.revision > data1.revision then
         return 0;
@@ -53,122 +50,148 @@ local function compareNodeData(data0, data1)
     return 0;
 end
 
-local function getSynNodeDiff(self, synData)
+utils.getNetworkStateDiff = function(synRequestData)
     local diff = {};
     local diffUpdateList='';
-    for ip, networStateNodeData in pairs(self.networkState) do
-        if synData[ip] == nil or compareNodeData(networStateNodeData,synData[ip]) == 0 then
+    for ip, nodeData in pairs(gossip.networkState) do
+        if synRequestData[ip] == nil or utils.compareNodeData(nodeData, synRequestData[ip]) == 0 then
             diffUpdateList = diffUpdateList..ip..' ';
-            diff[ip]=networStateNodeData;
+            diff[ip]=nodeData;
         end
     end
-    self:logVerbose('Computed diff: '..diffUpdateList);
+    utils.logVerbose('Computed diff: '..diffUpdateList);
     return diff;
 end
 
-utils.logVerbose = function(self, message)
-    if (self.config.debugLevel < 1) then
-        print(message);
-    end
-end
-
-utils.logInfo = function(self, message)
-    if (self.config.debugLevel < 2) then
-        print(message);
-    end
-end
-
-utils.setConfig = function(self, userConfig)
+utils.setConfig = function(userConfig)
     for k, v in pairs(userConfig) do
-        if (self.config[k] ~= nil and type(self.config[k]) == type(v)) then
-            self:logVerbose('Setting ' .. k);
-            self.config[k] = v;
+        if (gossip.config[k] ~= nil and type(gossip.config[k]) == type(v)) then
+            gossip.config[k] = v;
+            utils.logVerbose('Set value for '.. k);
         end
     end
 end
 
 -- State
 
-state.start = function(self)
-    if self.started then
-        self:logInfo('Gossip already started.');
-        return;
+state.setRev = function(revNumber)
+    local revision = 0;
+    local revFile = constants.revFileName;
+
+    if revNumber ~= nil then
+        revision = revNumber;
+    elseif file.exists(revFile) then
+        revision = file.getcontents(revFile) + 1;
     end
-    initRev(self);
-    self.inboundSocket = net.createUDPSocket();
-    self.inboundSocket:listen(self.config.comPort);
-    self.inboundSocket:on('receive', self:stateUpdate());
-    self.started = true;
+    file.putcontents(revFile, revision);
+    gossip.currentState.revision = revision;
+    utils.logVerbose('Revision set to ' .. gossip.currentState.revision);
 end
 
-state.updateHeartbeat = function(self)
-    self.state.heartbeat = tmr.time();
+state.setRevManually = function(revNumber)
+    state.setRev(revNumber);
+    utils.logInfo('Revision overriden to '..revNumber);
+end
+
+state.start = function()
+    if gossip.started then
+        utils.logInfo('Gossip already started.');
+        return;
+    end
+    gossip.currentState.ip = wifi.sta.getip();
+    if gossip.currentState.ip == nil then
+        utils.logInfo('Node not connected to network. Gossip will not start.');
+        return;
+    end
+    state.setRev();
+    gossip.inboundSocket = net.createUDPSocket();
+    gossip.inboundSocket:listen(gossip.config.comPort);
+    gossip.inboundSocket:on('receive', network.stateUpdate());
+    gossip.started = true;
+end
+
+state.updateHeartbeat = function()
+    gossip.state.heartbeat = tmr.time();
 end
 
 -- Network
 
-local function updateNetworkState(self, synData)
+network.updateNetworkState = function(synData)
     local updatedNodes = '';
     for ip, synNodeData in pairs(synData) do
-        if self.networkState[ip] ~= nil then
-            if compareNodeData(self.networkState[ip], synNodeData) == 1 then
-                self.networkState[ip] = synNodeData;
+        if gossip.networkState[ip] ~= nil then
+            if utils.compareNodeData(gossip.networkState[ip], synNodeData) == 1 then
+                gossip.networkState[ip] = synNodeData;
                 updatedNodes = updatedNodes..ip..' ';
             end
-        else
-            self.networkState[ip] = synNodeData;
+        elseif utils.isNodeDataValid(synNodeData) then
+            table.insert(gossip.config.seedList, ip);
+            utils.logInfo('Inserted '..ip..' into seed list.');
+            gossip.networkState[ip] = synNodeData;
             updatedNodes = updatedNodes..ip..' ';
         end
     end
-    self:logVerbose('Updated networkState with nodes: '..updatedNodes);
+    utils.logVerbose('Updated networkState with nodes: '..updatedNodes);
 end
 
-network.pickRandomNode = function(self)
-    local randomListPick = node.random(1, tables.getn(self.config.seedList));
-    return self.config.seedList[randomListPick];
+network.pickRandomNode = function()
+    local randomListPick = {};
+    if table.getn(gossip.config.seedList) > 0 then
+       randomListPick = node.random(1, tables.getn(gossip.config.seedList));
+    else
+        utils.logInfo('Seedlist is empty. Please provide one or wait for node to be contacted.');
+    end
+    return gossip.config.seedList[randomListPick];
 end
 
-local replyAck = function(self, ip, diff)
+network.replyAck = function(ip, diff)
     local outboundSocket = net.createUDPSocket();
-    self:logVerbose('Replying to '..ip..' with '..table.getn(diff)..' entries.');
-    diff.type = constants.ACK;
-    outboundSocket:send(self.config.comPort, ip, sjson.encode(diff));
+    utils.logVerbose('Replying to '..ip);
+    diff.type = constants.updateType.ACK;
+    outboundSocket:send(gossip.config.comPort, ip, sjson.encode(diff));
 end
 
-local synNetworkState = function(self, ip, updateData)
-    local diff = getSynNodeDiff(self, updateData);
-    replyAck(self, ip, diff);
+network.synNetworkState = function(ip, updateData)
+    local diff = utils.getNetworkStateDiff(updateData);
+    network.updateNetworkState(updateData);
+    network.replyAck(ip, diff);
 end
 
-local ackNetworkState = function(self, updateData)
+network.ackNetworkState = function(updateData)
+    local dataToUpdate = ''
     for k,v in pairs(updateData) do
-        if compareNodeData(self.networkState[k], updateData[k]) == 1 then
-            self:logVerbose('Updating ack data for '..k);
-            self.networkState[k] = v;
+        if utils.compareNodeData(gossip.networkState[k], updateData[k]) == 1 then
+            gossip.networkState[k] = v;
+            dataToUpdate = dataToUpdate..k..' ';
         end
+    end
+    if #dataToUpdate > 1 then
+        utils.logVerbose('Updated via ack from peer : '..dataToUpdate);
+    else
+        utils.logVerbose('Received ack from peer with no updates.');
     end
 end
 
-network.stateUpdate = function(self)
+network.stateUpdate = function()
     return function(socket, data, port, ip)
-        if self.networkState[ip] ~= nil then
-            self.networkState[ip].nodeStatus = constants.nodeStatus.UP;
+        if gossip.networkState[ip] ~= nil then
+            gossip.networkState[ip].state = constants.nodeState.UP;
         end
-        self:logVerbose('Received data from ' .. ip);
+        utils.logVerbose('Received data from ' .. ip);
         local messageDecoded, updateData = pcall(sjson.decode, data);
         if not messageDecoded then
-            self:logInfo('Invalid JSON received from '..ip);
-            self:logVerbose('Error msg: '..updateData..'\n'..data);
+            utils.logInfo('Invalid JSON received from '..ip);
+            utils.logVerbose('Error msg: '..updateData..'\n'..data);
             return;
         end
         local updateType = updateData.type;
         updateData.type = nil;
         if updateType == constants.updateType.SYN then
-            synNetworkState(self, ip, updateData);
+            network.synNetworkState(ip, updateData);
         elseif updateType == constants.updateType.ACK then
-            ackNetworkState(self, updateData);
+            network.ackNetworkState(updateData);
         else
-            self:logVerbose('Invalid data comming from ip '..ip..'. No type specified');
+            utils.logVerbose('Invalid data comming from ip '..ip..'. No type specified.');
             return;
         end
     end
@@ -181,7 +204,7 @@ constants.debugLevel = {
     INFO = 1
 }
 
-constants.nodeStatus = {
+constants.nodeState = {
     REMOVE = 0,
     DOWN = 1,
     SUSPECT = 2,
@@ -201,6 +224,7 @@ constants.defaultConfig = {
 constants.initialState = {
     revision = 1,
     heartbeat = 0,
+    state = constants.nodeState.UP
 }
 
 constants.updateType =
@@ -209,24 +233,22 @@ constants.updateType =
     SYN = 'SYN'
 }
 
+constants.revFileName = 'gossip/rev.dat';
+
 -- Return
 
-local gossip = {
+gossip = {
     started = false,
-    config = constants.defaultConfig;
+    config = constants.defaultConfig,
     currentState = constants.initialState,
     setConfig = utils.setConfig,
-    pickRandomNode = network.pickRandomNode,
-    stateUpdate = network.stateUpdate,
-    replyDiff = network.replyDiff,
-    logInfo = utils.logInfo,
-    logVerbose = utils.logVerbose,
     start = state.start,
+    setRevManually = state.setRevManually,
     networkState = {}
 };
 
-if (net == nil or file == nil or tmr == nil) then
-    error('Gossip requires these modules to work: net, file, tmr');
+if (net == nil or file == nil or tmr == nil or wifi == nil) then
+    error('Gossip requires these modules to work: net, file, tmr, wifi');
 else
 return gossip;
 end
