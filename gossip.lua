@@ -21,26 +21,49 @@ end
 
 -- Utils
 
-local function compareData(data0, data1)
-    if data1.revision == nil or data1.heartBeat == nil then
+local function synNodeDataValid(synNodeData)
+    if synNodeData.revision == nil or synNodeData.heartbeat == nil or synNodeData.state == nil then
+        return false;
+    end
+    return true;
+end
+
+local function compareNodeData(data0, data1)
+    if not synNodeDataValid(data1) then
         return 0;
     end
     if data0.revision > data1.revision then
         return 0;
-    elseif data1.revision > data0.revision then
+    end
+    if data1.revision > data0.revision then
         return 1;
     end
-    if data0.heartBeat > data1.heartBeat then
+    if data0.heartbeat > data1.heartbeat then
         return 0;
-    elseif data1.heartBeat > data0.heartBeat then
+    end
+    if data1.heartbeat > data0.heartbeat then
         return 1;
     end
-    if data0.nodeState > data1.nodeState then
+    if data0.state > data1.state then
         return 0;
-    elseif data1.nodeState > data0.nodeState then
+    end
+    if data1.state > data0.state then
         return 1;
     end
-    return -1;
+    return 0;
+end
+
+local function getSynNodeDiff(self, synData)
+    local diff = {};
+    local diffUpdateList='';
+    for ip, networStateNodeData in pairs(self.networkState) do
+        if synData[ip] == nil or compareNodeData(networStateNodeData,synData[ip]) == 0 then
+            diffUpdateList = diffUpdateList..ip..' ';
+            diff[ip]=networStateNodeData;
+        end
+    end
+    self:logVerbose('Computed diff: '..diffUpdateList);
+    return diff;
 end
 
 utils.logVerbose = function(self, message)
@@ -84,32 +107,20 @@ end
 
 -- Network
 
-local function updateNetworkState(self, updateData)
-    local diff = {};
-    for ip, stateData in pairs(self.networkState) do
-        if updateData[ip] == nil then
-            self:logVerbose('Adding data to replyData for ip ' ..ip);
-            diff[ip]=stateData;
-        end
-    end
-
-    for ip, stateData in pairs(updateData) do
+local function updateNetworkState(self, synData)
+    local updatedNodes = '';
+    for ip, synNodeData in pairs(synData) do
         if self.networkState[ip] ~= nil then
-            local dataResult = compareData(self.networkState[ip], stateData);
-            if dataResult == 0 then
-                self:logVerbose('Adding data to replyData for ip '..ip);
-                table.insert(diff, self.networkState[ip]);
-            elseif dataResult == 1 then
-                self:logVerbose('Updating state for ' ..ip);
-                self.networkState[ip] = stateData;
+            if compareNodeData(self.networkState[ip], synNodeData) == 1 then
+                self.networkState[ip] = synNodeData;
+                updatedNodes = updatedNodes..ip..' ';
             end
         else
-            self:logVerbose('Updating state for ' ..ip);
-            self.networkState[ip] = stateData;
+            self.networkState[ip] = synNodeData;
+            updatedNodes = updatedNodes..ip..' ';
         end
     end
-
-    return diff;
+    self:logVerbose('Updated networkState with nodes: '..updatedNodes);
 end
 
 network.pickRandomNode = function(self)
@@ -125,13 +136,13 @@ local replyAck = function(self, ip, diff)
 end
 
 local synNetworkState = function(self, ip, updateData)
-    local diff = updateNetworkState(self, updateData);
+    local diff = getSynNodeDiff(self, updateData);
     replyAck(self, ip, diff);
 end
 
 local ackNetworkState = function(self, updateData)
     for k,v in pairs(updateData) do
-        if compareData(self.networkState[k], updateData[k]) == 1 then
+        if compareNodeData(self.networkState[k], updateData[k]) == 1 then
             self:logVerbose('Updating ack data for '..k);
             self.networkState[k] = v;
         end
