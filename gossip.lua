@@ -18,6 +18,10 @@ utils.logInfo = function(message)
     end
 end
 
+utils.getNetworkState = function()
+    return sjson.encode(gossip.networkState)
+end
+
 utils.isNodeDataValid = function(nodeData)
     return nodeData.revision ~= nil and nodeData.heartbeat ~= nil and nodeData.state ~= nil
 end
@@ -98,20 +102,22 @@ state.start = function()
         utils.logInfo('Gossip already started.');
         return;
     end
-    gossip.currentState.ip = wifi.sta.getip();
-    if gossip.currentState.ip == nil then
+    gossip.ip = wifi.sta.getip();
+    if gossip.ip == nil then
         utils.logInfo('Node not connected to network. Gossip will not start.');
         return;
     end
     state.setRev();
+    gossip.networkState[gossip.ip] = gossip.currentState;
+
     gossip.inboundSocket = net.createUDPSocket();
     gossip.inboundSocket:listen(gossip.config.comPort);
     gossip.inboundSocket:on('receive', network.stateUpdate());
-    gossip.started = true;
-end
 
-state.updateHeartbeat = function()
-    gossip.state.heartbeat = tmr.time();
+    gossip.started = true;
+    gossip.timer = tmr.create();
+    gossip.timer:register(gossip.config.roundInterval, tmr.ALARM_AUTO, network.sendSyn);
+    gossip.timer:start();
 end
 
 -- Network
@@ -134,30 +140,47 @@ network.updateNetworkState = function(synData)
     utils.logVerbose('Updated networkState with nodes: '..updatedNodes);
 end
 
+network.sendSyn = function()
+    gossip.networkState[gossip.ip].heartbeat = tmr.time();
+    local randomNode = network.pickRandomNode();
+    if randomNode ~= nil then
+        network.sendData(randomNode, gossip.networkState, constants.updateType.SYN);
+        utils.logInfo('Sent network state to '..randomNode);
+        if gossip.networkState[randomNode] ~= nil then
+            local nodeState = gossip.networkState[randomNode].state;
+            if nodeState > constants.nodeState.DOWN then
+                nodeState = nodeState - 1;
+                gossip.networkState[randomNode].state = nodeState;
+            end
+        end
+    end
+end
+
 network.pickRandomNode = function()
     local randomListPick = {};
     if table.getn(gossip.config.seedList) > 0 then
-       randomListPick = node.random(1, tables.getn(gossip.config.seedList));
+       randomListPick = node.random(1, table.getn(gossip.config.seedList));
     else
         utils.logInfo('Seedlist is empty. Please provide one or wait for node to be contacted.');
+        return nil;
     end
     return gossip.config.seedList[randomListPick];
 end
 
-network.replyAck = function(ip, diff)
+network.sendData = function(ip, data, dataType)
     local outboundSocket = net.createUDPSocket();
-    utils.logVerbose('Replying to '..ip);
-    diff.type = constants.updateType.ACK;
-    outboundSocket:send(gossip.config.comPort, ip, sjson.encode(diff));
+    utils.logVerbose('Sending '..dataType..' to '..ip);
+    local dataToSend = string.gsub(sjson.encode(data), constants.updateType.TEMPLATE, dataType, 1);
+    outboundSocket:send(gossip.config.comPort, ip, dataToSend);
 end
 
-network.synNetworkState = function(ip, updateData)
+network.receiveSyn = function(ip, updateData)
     local diff = utils.getNetworkStateDiff(updateData);
     network.updateNetworkState(updateData);
-    network.replyAck(ip, diff);
+    network.sendData(ip, diff, constants.updateType.ACK);
 end
 
-network.ackNetworkState = function(updateData)
+network.sendAck = function(updateData)
     local dataToUpdate = ''
     for k,v in pairs(updateData) do
         if utils.compareNodeData(gossip.networkState[k], updateData[k]) == 1 then
@@ -187,9 +210,9 @@ network.stateUpdate = function()
         local updateType = updateData.type;
         updateData.type = nil;
         if updateType == constants.updateType.SYN then
-            network.synNetworkState(ip, updateData);
+            network.receiveSyn(ip, updateData);
         elseif updateType == constants.updateType.ACK then
-            network.ackNetworkState(updateData);
+            network.sendAck(updateData);
         else
             utils.logVerbose('Invalid data comming from ip '..ip..'. No type specified.');
             return;
@@ -227,10 +250,10 @@ constants.initialState = {
     state = constants.nodeState.UP
 }
 
-constants.updateType =
-{
+constants.updateType = {
     ACK = 'ACK',
-    SYN = 'SYN'
+    SYN = 'SYN',
+    TEMPLATE = '{{TYPE}}'
 }
 
 constants.revFileName = 'gossip/rev.dat';
@@ -244,7 +267,8 @@ gossip = {
     setConfig = utils.setConfig,
     start = state.start,
     setRevManually = state.setRevManually,
-    networkState = {}
+    networkState = {type = constants.updateType.TEMPLATE},
+    getNetworkState = utils.getNetworkState
 };
 
 if (net == nil or file == nil or tmr == nil or wifi == nil) then
