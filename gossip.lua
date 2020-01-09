@@ -144,7 +144,7 @@ network.sendSyn = function()
     gossip.networkState[gossip.ip].heartbeat = tmr.time();
     local randomNode = network.pickRandomNode();
     if randomNode ~= nil then
-        network.sendData(randomNode, gossip.networkState, constants.updateType.SYN);
+        network.sendData(randomNode, gossip.networkState);
         utils.logInfo('Sent network state to '..randomNode);
         if gossip.networkState[randomNode] ~= nil then
             local nodeState = gossip.networkState[randomNode].state;
@@ -167,20 +167,21 @@ network.pickRandomNode = function()
     return gossip.config.seedList[randomListPick];
 end
 
-network.sendData = function(ip, data, dataType)
+network.sendData = function(ip, data)
     local outboundSocket = net.createUDPSocket();
-    utils.logVerbose('Sending '..dataType..' to '..ip);
-    local dataToSend = string.gsub(sjson.encode(data), constants.updateType.TEMPLATE, dataType, 1);
+    utils.logVerbose('Sending '..data.type..' to '..ip);
+    local dataToSend = sjson.encode(data);
     outboundSocket:send(gossip.config.comPort, ip, dataToSend);
 end
 
 network.receiveSyn = function(ip, updateData)
     local diff = utils.getNetworkStateDiff(updateData);
+    diff.type = constants.updateType.ACK;
     network.updateNetworkState(updateData);
-    network.sendData(ip, diff, constants.updateType.ACK);
+    network.sendData(ip, diff);
 end
 
-network.sendAck = function(updateData)
+network.receiveAck = function(updateData)
     local dataToUpdate = ''
     for k,v in pairs(updateData) do
         if utils.compareNodeData(gossip.networkState[k], updateData[k]) == 1 then
@@ -212,7 +213,7 @@ network.stateUpdate = function()
         if updateType == constants.updateType.SYN then
             network.receiveSyn(ip, updateData);
         elseif updateType == constants.updateType.ACK then
-            network.sendAck(updateData);
+            network.receiveAck(updateData);
         else
             utils.logVerbose('Invalid data comming from ip '..ip..'. No type specified.');
             return;
@@ -253,7 +254,6 @@ constants.initialState = {
 constants.updateType = {
     ACK = 'ACK',
     SYN = 'SYN',
-    TEMPLATE = '{{TYPE}}'
 }
 
 constants.revFileName = 'gossip/rev.dat';
@@ -267,7 +267,7 @@ gossip = {
     setConfig = utils.setConfig,
     start = state.start,
     setRevManually = state.setRevManually,
-    networkState = {type = constants.updateType.TEMPLATE},
+    networkState = {type = constants.updateType.ACK},
     getNetworkState = utils.getNetworkState
 };
 
