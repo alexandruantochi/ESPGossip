@@ -144,7 +144,7 @@ network.sendSyn = function()
     gossip.networkState[gossip.ip].heartbeat = tmr.time();
     local randomNode = network.pickRandomNode();
     if randomNode ~= nil then
-        network.sendData(randomNode, gossip.networkState);
+        network.sendData(randomNode, gossip.networkState, constants.updateType.SYN);
         utils.logInfo('Sent network state to '..randomNode);
         if gossip.networkState[randomNode] ~= nil then
             local nodeState = gossip.networkState[randomNode].state;
@@ -167,18 +167,19 @@ network.pickRandomNode = function()
     return gossip.config.seedList[randomListPick];
 end
 
-network.sendData = function(ip, data)
+network.sendData = function(ip, data, sendType)
     local outboundSocket = net.createUDPSocket();
-    utils.logVerbose('Sending '..data.type..' to '..ip);
+    utils.logVerbose('Sending '..sendType..' to '..ip);
+    data.type = sendType;
     local dataToSend = sjson.encode(data);
+    data.type = nil;
     outboundSocket:send(gossip.config.comPort, ip, dataToSend);
 end
 
 network.receiveSyn = function(ip, updateData)
     local diff = utils.getNetworkStateDiff(updateData);
-    diff.type = constants.updateType.ACK;
     network.updateNetworkState(updateData);
-    network.sendData(ip, diff);
+    network.sendData(ip, diff, constants.updateType.ACK);
 end
 
 network.receiveAck = function(updateData)
@@ -239,9 +240,6 @@ constants.defaultConfig = {
     seedList = {},
     roundInterval = 10000,
     comPort = 5000,
-    pickStrategy = 'random',
-    partnerPick = 1,
-    timeout = 5000,
     debugLevel = constants.debugLevel.VERBOSE
 }
 
@@ -267,7 +265,7 @@ gossip = {
     setConfig = utils.setConfig,
     start = state.start,
     setRevManually = state.setRevManually,
-    networkState = {type = constants.updateType.ACK},
+    networkState = {},
     getNetworkState = utils.getNetworkState
 };
 
