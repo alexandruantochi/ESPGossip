@@ -141,11 +141,9 @@ network.updateNetworkState = function(synData)
 end
 
 network.sendSyn = function()
-    gossip.networkState[gossip.ip].heartbeat = tmr.time();
     local randomNode = network.pickRandomNode();
     if randomNode ~= nil then
         network.sendData(randomNode, gossip.networkState, constants.updateType.SYN);
-        utils.logInfo('Sent network state to '..randomNode);
         if gossip.networkState[randomNode] ~= nil then
             local nodeState = gossip.networkState[randomNode].state;
             if nodeState > constants.nodeState.DOWN then
@@ -154,12 +152,14 @@ network.sendSyn = function()
             end
         end
     end
+    gossip.networkState[gossip.ip].heartbeat = tmr.time();
 end
 
 network.pickRandomNode = function()
     local randomListPick = {};
     if table.getn(gossip.config.seedList) > 0 then
        randomListPick = node.random(1, table.getn(gossip.config.seedList));
+       utils.logInfo('Randomly picked: '..gossip.config.seedList[randomListPick]);
     else
         utils.logInfo('Seedlist is empty. Please provide one or wait for node to be contacted.');
         return nil;
@@ -169,20 +169,22 @@ end
 
 network.sendData = function(ip, data, sendType)
     local outboundSocket = net.createUDPSocket();
-    utils.logVerbose('Sending '..sendType..' to '..ip);
     data.type = sendType;
     local dataToSend = sjson.encode(data);
     data.type = nil;
     outboundSocket:send(gossip.config.comPort, ip, dataToSend);
+    utils.logVerbose('Sent '..sendType..' to '..ip);
 end
 
 network.receiveSyn = function(ip, updateData)
+    utils.logInfo('Received SYN from '..ip);
     local diff = utils.getNetworkStateDiff(updateData);
     network.updateNetworkState(updateData);
     network.sendData(ip, diff, constants.updateType.ACK);
 end
 
-network.receiveAck = function(updateData)
+network.receiveAck = function(ip, updateData)
+    utils.logInfo('Received ACK from '..ip);
     local dataToUpdate = ''
     for k,v in pairs(updateData) do
         if utils.compareNodeData(gossip.networkState[k], updateData[k]) == 1 then
@@ -191,18 +193,16 @@ network.receiveAck = function(updateData)
         end
     end
     if #dataToUpdate > 1 then
-        utils.logVerbose('Updated via ack from peer : '..dataToUpdate);
-    else
-        utils.logVerbose('Received ack from peer with no updates.');
+        utils.logVerbose('Updated via ACK from peer : '..dataToUpdate);
     end
 end
 
 network.stateUpdate = function()
     return function(socket, data, port, ip)
+        utils.logInfo('Incoming data from '..ip);
         if gossip.networkState[ip] ~= nil then
             gossip.networkState[ip].state = constants.nodeState.UP;
         end
-        utils.logVerbose('Received data from ' .. ip);
         local messageDecoded, updateData = pcall(sjson.decode, data);
         if not messageDecoded then
             utils.logInfo('Invalid JSON received from '..ip);
@@ -214,7 +214,7 @@ network.stateUpdate = function()
         if updateType == constants.updateType.SYN then
             network.receiveSyn(ip, updateData);
         elseif updateType == constants.updateType.ACK then
-            network.receiveAck(updateData);
+            network.receiveAck(ip, updateData);
         else
             utils.logVerbose('Invalid data comming from ip '..ip..'. No type specified.');
             return;
