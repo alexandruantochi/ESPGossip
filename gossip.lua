@@ -6,21 +6,14 @@ local state = {};
 
 -- Utils
 
-utils.logVerbose = function(message)
-    if (gossip.config.debugLevel <= constants.debugLevel.VERBOSE) then
-        print(message);
-        print(node.heap());
-    end
-end
-
-utils.logInfo = function(message)
-    if (gossip.config.debugLevel <= constants.debugLevel.INFO) then
-        print(message);
-        print(node.heap());
+utils.debug = function(message)
+    if (gossip.config.debugOutput ~= nil) then
+    gossip.config.debugOutput(message);
     end
 end
 
 utils.getNetworkState = function() return sjson.encode(gossip.networkState) end
+utils.getSeedList = function() return sjson.encode(gossip.config.seedList) end
 
 utils.isNodeDataValid = function(nodeData)
     return nodeData.revision ~= nil and nodeData.heartbeat ~= nil and
@@ -40,17 +33,17 @@ utils.compareNodeData = function(data0, data1)
     return 0;
 end
 
-utils.getNetworkStateDiff = function(synRequestData)
+utils.getNetworkStateDiff = function(synData)
     local diff = {};
     local diffUpdateList = '';
     for ip, nodeData in pairs(gossip.networkState) do
-        if synRequestData[ip] == nil or
-            utils.compareNodeData(nodeData, synRequestData[ip]) == 0 then
+        if synData[ip] == nil or
+            utils.compareNodeData(nodeData, synData[ip]) == 0 then
             diffUpdateList = diffUpdateList .. ip .. ' ';
             diff[ip] = nodeData;
         end
     end
-    utils.logVerbose('Computed diff: ' .. diffUpdateList);
+    utils.debug('Computed diff: ' .. diffUpdateList);
     return diff;
 end
 
@@ -58,7 +51,7 @@ utils.setConfig = function(userConfig)
     for k, v in pairs(userConfig) do
         if (gossip.config[k] ~= nil and type(gossip.config[k]) == type(v)) then
             gossip.config[k] = v;
-            utils.logVerbose('Set value for ' .. k);
+            utils.debug('Set value for ' .. k);
         end
     end
 end
@@ -76,22 +69,22 @@ state.setRev = function(revNumber)
     end
     file.putcontents(revFile, revision);
     gossip.currentState.revision = revision;
-    utils.logVerbose('Revision set to ' .. gossip.currentState.revision);
+    utils.debug('Revision set to ' .. gossip.currentState.revision);
 end
 
 state.setRevManually = function(revNumber)
     state.setRev(revNumber);
-    utils.logInfo('Revision overriden to ' .. revNumber);
+    utils.debug('Revision overriden to ' .. revNumber);
 end
 
 state.start = function()
     if gossip.started then
-        utils.logInfo('Gossip already started.');
+        utils.debug('Gossip already started.');
         return;
     end
     gossip.ip = wifi.sta.getip();
     if gossip.ip == nil then
-        utils.logInfo('Node not connected to network. Gossip will not start.');
+        utils.debug('Node not connected to network. Gossip will not start.');
         return;
     end
     state.setRev();
@@ -110,6 +103,12 @@ end
 
 -- Network
 
+network.addNewNode = function(ip, nodeData)
+    table.insert(gossip.config.seedList, ip);
+    utils.debug('Inserted ' .. ip .. ' into seed list.');
+    gossip.networkState[ip] = nodeData;
+end
+
 network.updateNetworkState = function(synData)
     local updatedNodes = '';
     for ip, synNodeData in pairs(synData) do
@@ -118,40 +117,38 @@ network.updateNetworkState = function(synData)
                 gossip.networkState[ip] = synNodeData;
                 updatedNodes = updatedNodes .. ip .. ' ';
             end
-        elseif utils.isNodeDataValid(synNodeData) then
-            table.insert(gossip.config.seedList, ip);
-            utils.logInfo('Inserted ' .. ip .. ' into seed list.');
-            gossip.networkState[ip] = synNodeData;
+        else
+            network.addNewNode(ip, synNodeData);
             updatedNodes = updatedNodes .. ip .. ' ';
         end
     end
-    utils.logVerbose('Updated networkState with nodes: ' .. updatedNodes);
+    utils.debug('Updated networkState with nodes: ' .. updatedNodes);
 end
 
 network.sendSyn = function()
+    gossip.networkState[gossip.ip].heartbeat = tmr.time();
     local randomNode = network.pickRandomNode();
     if randomNode ~= nil then
         network.sendData(randomNode, gossip.networkState,
                          constants.updateType.SYN);
         if gossip.networkState[randomNode] ~= nil then
             local nodeState = gossip.networkState[randomNode].state;
-            if nodeState > constants.nodeState.DOWN then
-                nodeState = nodeState - 1;
+            if nodeState < constants.nodeState.REMOVE then
+                nodeState = nodeState + constants.nodeState.TICK;
                 gossip.networkState[randomNode].state = nodeState;
             end
         end
     end
-    gossip.networkState[gossip.ip].heartbeat = tmr.time();
 end
 
 network.pickRandomNode = function()
     local randomListPick = {};
-    if table.getn(gossip.config.seedList) > 0 then
-        randomListPick = node.random(1, table.getn(gossip.config.seedList));
-        utils.logInfo('Randomly picked: ' ..
+    if #gossip.config.seedList > 0 then
+        randomListPick = node.random(1, #gossip.config.seedList);
+        utils.debug('Randomly picked: ' ..
                           gossip.config.seedList[randomListPick]);
     else
-        utils.logInfo(
+        utils.debug(
             'Seedlist is empty. Please provide one or wait for node to be contacted.');
         return nil;
     end
@@ -164,46 +161,43 @@ network.sendData = function(ip, data, sendType)
     local dataToSend = sjson.encode(data);
     data.type = nil;
     outboundSocket:send(gossip.config.comPort, ip, dataToSend);
-    utils.logVerbose('Sent ' .. sendType .. ' to ' .. ip);
+    utils.debug('Sent ' .. sendType .. ' to ' .. ip);
     outboundSocket:close();
 end
 
 network.receiveSyn = function(ip, updateData)
-    utils.logInfo('Received SYN from ' .. ip);
+    utils.debug('Received SYN from ' .. ip);
     local diff = utils.getNetworkStateDiff(updateData);
     network.updateNetworkState(updateData);
     network.sendData(ip, diff, constants.updateType.ACK);
 end
 
 network.receiveAck = function(ip, updateData)
-    utils.logInfo('Received ACK from ' .. ip);
+    utils.debug('Received ACK from ' .. ip);
     local dataToUpdate = '';
-    for k, v in pairs(updateData) do
-        if utils.isNodeDataValid(v) then
-            if gossip.networkState[k] == nil then
-                gossip.networkState[k] = v;
-            else
-                if utils.compareNodeData(gossip.networkState[k], updateData[k]) == 1 then
-                    gossip.networkState[k] = v;
-                    dataToUpdate = dataToUpdate .. k .. ' ';
-                end
+    for ip, nodeData in pairs(updateData) do
+        if gossip.networkState[ip] == nil then
+            network.addNewNode(ip, nodeData);
+        else
+            if utils.compareNodeData(gossip.networkState[ip], updateData[ip]) == 1 then
+                gossip.networkState[ip] = nodeData;
+                dataToUpdate = dataToUpdate .. ip .. ' ';
             end
         end
         if #dataToUpdate > 1 then
-            utils.logVerbose('Updated via ACK from peer : ' .. dataToUpdate);
+            utils.debug('Updated via ACK from peer : ' .. dataToUpdate);
         end
     end
 end
 
 network.stateUpdate = function()
     return function(socket, data, port, ip)
-        utils.logInfo('Incoming data from ' .. ip);
         if gossip.networkState[ip] ~= nil then
             gossip.networkState[ip].state = constants.nodeState.UP;
         end
         local messageDecoded, updateData = pcall(sjson.decode, data);
         if not messageDecoded then
-            utils.logInfo('Invalid JSON received from ' .. ip);
+            utils.debug('Invalid JSON received from ' .. ip);
             return;
         end
         local updateType = updateData.type;
@@ -213,7 +207,7 @@ network.stateUpdate = function()
         elseif updateType == constants.updateType.ACK then
             network.receiveAck(ip, updateData);
         else
-            utils.logVerbose('Invalid data comming from ip ' .. ip ..
+            utils.debug('Invalid data comming from ip ' .. ip ..
                                  '. No type specified.');
             return;
         end
@@ -222,15 +216,12 @@ end
 
 -- Constants
 
-constants.debugLevel = {VERBOSE = 0, INFO = 1}
-
-constants.nodeState = {REMOVE = 0, DOWN = 1, SUSPECT = 2, UP = 3}
+constants.nodeState = {TICK = 1, UP = 0, SUSPECT = 2, DOWN = 3, REMOVE = 4}
 
 constants.defaultConfig = {
     seedList = {},
     roundInterval = 10000,
-    comPort = 5000,
-    debugLevel = constants.debugLevel.VERBOSE
+    comPort = 5000
 }
 
 constants.initialState = {
