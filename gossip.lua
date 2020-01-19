@@ -231,7 +231,7 @@ constants.defaultConfig = {
     seedList = {},
     roundInterval = 10000,
     comPort = 5000,
-    debug = true
+    debug = false
 };
 
 constants.initialState = {
