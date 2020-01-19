@@ -1,3 +1,5 @@
+-- Gossip protocol implementation
+-- https://github.com/alexandruantochi/ESPGossip/
 local gossip = {};
 local constants = {};
 local utils = {};
@@ -16,12 +18,13 @@ utils.debug = function(message)
     end
 end
 
-utils.getNetworkState = function() return sjson.encode(gossip.networkState) end
-utils.getSeedList = function() return sjson.encode(gossip.config.seedList) end
+utils.getNetworkState = function() return sjson.encode(gossip.networkState); end
+utils.getSeedList = function() return sjson.encode(gossip.config.seedList); end
 
 utils.isNodeDataValid = function(nodeData)
-    return nodeData.revision ~= nil and nodeData.heartbeat ~= nil and
-               nodeData.state ~= nil
+    return  nodeData.revision ~= nil
+        and nodeData.heartbeat ~= nil
+        and nodeData.state ~= nil;
 end
 
 utils.compareNodeData = function(data0, data1)
@@ -41,8 +44,7 @@ utils.getNetworkStateDiff = function(synData)
     local diff = {};
     local diffUpdateList = '';
     for ip, nodeData in pairs(gossip.networkState) do
-        if synData[ip] == nil or utils.compareNodeData(nodeData, synData[ip]) ==
-            0 then
+        if synData[ip] == nil or utils.compareNodeData(nodeData, synData[ip]) == 0 then
             diffUpdateList = diffUpdateList .. ip .. ' ';
             diff[ip] = nodeData;
         end
@@ -100,8 +102,7 @@ state.start = function()
 
     gossip.started = true;
     gossip.timer = tmr.create();
-    gossip.timer:register(gossip.config.roundInterval, tmr.ALARM_AUTO,
-                          network.sendSyn);
+    gossip.timer:register(gossip.config.roundInterval, tmr.ALARM_AUTO, network.sendSyn);
     gossip.timer:start();
 end
 
@@ -149,14 +150,11 @@ network.pickRandomNode = function()
     local randomListPick = {};
     if #gossip.config.seedList > 0 then
         randomListPick = node.random(1, #gossip.config.seedList);
-        utils.debug('Randomly picked: ' ..
-                        gossip.config.seedList[randomListPick]);
-    else
-        utils.debug(
-            'Seedlist is empty. Please provide one or wait for node to be contacted.');
-        return nil;
+        utils.debug('Randomly picked: ' .. gossip.config.seedList[randomListPick]);
+        return gossip.config.seedList[randomListPick];
     end
-    return gossip.config.seedList[randomListPick];
+    utils.debug('Seedlist is empty. Please provide one or wait for node to be contacted.');
+    return nil;
 end
 
 network.sendData = function(ip, data, sendType)
@@ -184,8 +182,7 @@ network.receiveAck = function(ackIp, updateData)
         if gossip.networkState[ip] == nil then
             network.addNewNode(ip, nodeData);
             nodeUpdated = true;
-        elseif utils.compareNodeData(gossip.networkState[ip], updateData[ip]) ==
-            1 then
+        elseif utils.compareNodeData(gossip.networkState[ip], updateData[ip]) == 1 then
             gossip.networkState[ip] = nodeData;
             nodeUpdated = true;
         end
@@ -222,22 +219,31 @@ end
 
 -- Constants
 
-constants.nodeState = {TICK = 1, UP = 0, SUSPECT = 2, DOWN = 3, REMOVE = 4}
+constants.nodeState = {
+    TICK = 1,
+    UP = 0,
+    SUSPECT = 2,
+    DOWN = 3,
+    REMOVE = 4
+};
 
 constants.defaultConfig = {
     seedList = {},
     roundInterval = 10000,
     comPort = 5000,
     debug = true
-}
+};
 
 constants.initialState = {
     revision = 1,
     heartbeat = 0,
     state = constants.nodeState.UP
-}
+};
 
-constants.updateType = {ACK = 'ACK', SYN = 'SYN'}
+constants.updateType = {
+    ACK = 'ACK',
+    SYN = 'SYN'
+}
 
 constants.revFileName = 'gossip/rev.dat';
 
