@@ -5,7 +5,7 @@
 | 2020-01-20 | [alexandruantochi](https://github.com/alexandruantochi) | [alexandruantochi](https://github.com/alexandruantochi) | [gossip.lua](../../lua_modules/gossip/gossip.lua) |
 
 
-This module is based on the gossip protocol and usefull for use cases when multiple controllers are on the same network and they need to know about each other's state or when a single point of failure (such as an entity that queries each controller in particular) is to be avoided.
+This module is based on the gossip protocol and usefull for use cases when multiple controllers are on the same network and they need to know about each other's state or when a single point of failure (such as an entity that queries each controller in particular) is to be avoided. It runs using UDP, thus providing faster communication and less network noise. 
 
 ## Usage
 ```lua
@@ -21,21 +21,21 @@ gossip.start()
 
 ## Strategy
 
-Each controller will randomly pick an IP from it's seed list. It will send a `SYN` request to that IP with the network state and up that node's state to an intermediary state between `Up` and `Suspect`. The node that recieves the `SYN` request will compute a difference on the data it received and what is has in it's own memory. It will then send that difference as an `ACK` request along with the extra data to the initial node. If there is no data to send, it will only send an `ACK`. The initial node will receive the `ACK` request, update the sender's state back to `Up` and update it's network state based on the `ACK` reply.
+Each controller will randomly pick an IP from it's seed list. It will send a `SYN` request to that IP and set recieving node's `state` to an intermediary state between `Up` and `Suspect`. The node that recieves the `SYN` request will compute a diff on the received networkState vs own networkState. It will then send that diff as an `ACK` request. If there is no data to send, it will only send an `ACK`. When the `ACK` is received, the sender's state will revert to `Up` and the receiving node will update it's own networkState using the diff (based on the `ACK` reply).
 
-Gossip will establish if the information received from another node has fresher data by first comparing the `revision`, then the `heartBeat` and lastly the `state`. States that are closer to `DOWN` have priority as a node might die off at the same `heartBeat`, thus providing the network with equal revision, heartBeat but different states.
+Gossip will establish if the information received from another node has fresher data by first comparing the `revision`, then the `heartbeat` and lastly the `state`. States that are closer to `DOWN` have priority as an offline node does not update it's heartbeat.
 
-Currently there is no implemented deletion for nodes that are down.
+Currently there is no implemented deletion for nodes that are down except for the fact that their status is signaled as `REMOVE`.
 
 ## Terms
 
 `revision` : generation of the node; if a node restarts, the revision will be increased by one. The revision data is stored as a file to provide persistency
 
-`heartBeat` : the node uptime in seconds (`tmr.time()`). This is used to help the other nodes figure out if the information received is newer than the one present in the `networkState`. 
+`heartBeat` : the node uptime in seconds (`tmr.time()`). This is used to help the other nodes figure out if the information about that particular node is newer. 
 
 `networkState` : the list with the state of the network composed of the `ip` as a key and `revision`, `heartBeat` and `state` as values packed in a table.
 
-`state` : aAll nodes start with a state set to `UP` and when a node sends a `SYN` request, it will mark that node in an intermediary state until it receives an `ACK` or a `SYN` from that specific IP. Basicaly, if a node receives any message, it will mark that senders IP as `UP`. 
+`state` : all nodes start with a state set to `UP` and when a node sends a `SYN` request, it will mark the destination node in an intermediary state until it receives an `ACK` or a `SYN` from it. Basicaly, if a node receives any message, it will mark that senders IP as `UP` as this provides proof that the node is online. 
 
 
 ## setConfig()
@@ -46,11 +46,11 @@ gossip.setConfig(config)
 
 Sets the configuration for gossip. The available options are:
 
-`seedList` : the list of seeds gossip will start with; this will be updated as new nodes are discovered
+`seedList` : the list of seeds gossip will start with; this will be updated as new nodes are discovered. Note that it's enough for all nodes to start with the same IP in the seedList, as once they have one seed in common, the data will propagate
 
 `roundInterval`: interval in milliseconds at which gossip will pick a random node from the seed list and send a `SYN` request
 
-`comPort` : port for the listening socket
+`comPort` : port for the listening UDP socket
 
 `debug` : flag that will provide debugging messages
 
@@ -77,8 +77,6 @@ If any of them is not provided, the values will default:
 `debug` : false
 
 `debugOutput` : print
-
-Note that it's enough for all nodes to start with the same single IP and after a few rounds, the seed list will be updated with the active node IPs.
 
 ## start()
 
@@ -116,7 +114,18 @@ JSON formatted string regarding the network state.
 
 Example:
 
-```
-{ "192.168.0.53" : { "state":3, "revision":25, "heartbeat":2500 },  "192.168.0.75" : { "state":0, "revision":4, "heartbeat":6500 }}
+```JSON
+{
+  "192.168.0.53": {
+    "state": 3,
+    "revision": 25,
+    "heartbeat": 2500
+  },
+  "192.168.0.75": {
+    "state": 0,
+    "revision": 4,
+    "heartbeat": 6500
+  }
+}
 ```
 
