@@ -30,12 +30,15 @@ Currently there is no implemented deletion for nodes that are down.
 ## Terms
 
 `revision` : generation of the node; if a node restarts, the revision will be increased by one. The revision data is stored as a file to provide persistency
+
 `heartBeat` : the node uptime in seconds (`tmr.time()`). This is used to help the other nodes figure out if the information received is newer than the one present in the `networkState`. 
+
 `networkState` : the list with the state of the network composed of the `ip` as a key and `revision`, `heartBeat` and `state` as values packed in a table.
+
 `state` : aAll nodes start with a state set to `UP` and when a node sends a `SYN` request, it will mark that node in an intermediary state until it receives an `ACK` or a `SYN` from that specific IP. Basicaly, if a node receives any message, it will mark that senders IP as `UP`. 
 
 
-## setConfig(config)
+## setConfig()
 #### Syntax
 ```lua
 gossip.setConfig(config)
@@ -44,9 +47,13 @@ gossip.setConfig(config)
 Sets the configuration for gossip. The available options are:
 
 `seedList` : the list of seeds gossip will start with; this will be updated as new nodes are discovered
+
 `roundInterval`: interval in milliseconds at which gossip will pick a random node from the seed list and send a `SYN` request
+
 `comPort` : port for the listening socket
+
 `debug` : flag that will provide debugging messages
+
 `debugOutput` : if debug is set to `true`, then this method will be used as a callback with the debug message as the first parameter
 
 ```lua
@@ -62,9 +69,13 @@ config = {
 If any of them is not provided, the values will default:
 
 `seedList` : nil
+
 `roundInterval`: 10000 (10 seconds)
+
 `comPort` : 5000
+
 `debug` : false
+
 `debugOutput` : print
 
 Note that it's enough for all nodes to start with the same single IP and after a few rounds, the seed list will be updated with the active node IPs.
