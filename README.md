@@ -10,11 +10,11 @@ This module is based on the gossip protocol and usefull for use cases when multi
 ## Usage
 ```lua
 config = {
-    seedList = {'192.168.0.1','192.168.0.15'},
+    seedList = { '192.168.0.1', '192.168.0.15' },
     debug = true,
     debugOutput = print
 }
-gossip = (require "gossip")
+gossip = require ("gossip")
 gossip.setConfig(config)
 gossip.start()
 ```
