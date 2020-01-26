@@ -129,3 +129,8 @@ Example:
 }
 ```
 
+##ToDo:
+
+* add function for handling `REMOVE` nodes
+* add callback function for network update
+
