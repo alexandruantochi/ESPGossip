@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Gossip</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="./gossip.js"></script>
+    <style>
+        .center {
+            margin: auto;
+            width: 60%;
+            padding: 10px;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <div>
+        <p>Enter node ip: </p> <input type="text" id="nodeIp">
+        <button onClick="connectToNode()">Connect</button>
+    </div>
+    <div class="center">
+        <p>Network State</p>
+        <table>
+            <thead>
+                <th>
+                    IP
+                </th>
+                <th>
+                    Revision
+                </th>
+                <th>
+                    Heartbeat
+                </th>
+                <th>
+                    State
+                </th>
+            </thead>
+            <tbody id="networkStateTable">
+                <tr>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
