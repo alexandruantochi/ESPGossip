@@ -15,7 +15,6 @@ connectToNode = function () {
 };
 
 updateNetworkStateTable = function (networkState) {
-    networkState = JSON.parse(networkState);
     let action;
     for (ip in networkState) {
         if (networkStateTable[ip] === undefined) {
