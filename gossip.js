@@ -37,8 +37,8 @@ updateExistingEntry = function (ip, nodeData) {
 
 addNewTableEntry = function (ip, nodeData) {
     $currentRow = $networkStateTable.append($('<tr>').attr('id', ip));
-    $currentRow.append($('<td>').val(ip));
-    $currentRow.append($('<td>').val(nodeData.revision));
-    $currentRow.append($('<td>').val(nodeData.heartbeat));
-    $currentRow.append($('<td>').val(nodeData.state));
+    $currentRow.append($('<td>').text(ip));
+    $currentRow.append($('<td>').text(nodeData.revision));
+    $currentRow.append($('<td>').text(nodeData.heartbeat));
+    $currentRow.append($('<td>').text(nodeData.state));
 }
