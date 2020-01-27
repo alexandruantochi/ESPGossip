@@ -17,7 +17,7 @@ connectToNode = function () {
 updateNetworkStateTable = function (networkState) {
     let action;
     for (ip in networkState) {
-        if (networkStateTable[ip] === undefined) {
+        if ($(ip)[0] === undefined) {
             action = addNewTableEntry
         }
         else {
