@@ -30,16 +30,16 @@ updateNetworkStateTable = function (networkState) {
 
 updateExistingEntry = function (ip, nodeData) {
     $currentRow = $('#' + ip);
-    $currentRow.children()[0] = ip;
-    $currentRow.children()[1] = nodeData.revision;
-    $currentRow.children()[2] = nodeData.heartbeat;
-    $currentRow.children()[3] = nodeData.state;
+    $currentRow.children()[0].val(ip);
+    $currentRow.children()[1].val(revision);
+    $currentRow.children()[2].val(nodeData.heartbeat);
+    $currentRow.children()[3].val(nodeData.state);
 }
 
 addNewTableEntry = function (ip, nodeData) {
     $currentRow = $networkStateTable.append($('<tr>').attr('id', ip));
-    $currentRow.append($('<td>').value(ip));
-    $currentRow.append($('<td>').value(nodeData.revision));
-    $currentRow.append($('<td>').value(nodeData.heartbeat));
-    $currentRow.append($('<td>').value(nodeData.state));
+    $currentRow.append($('<td>').val(ip));
+    $currentRow.append($('<td>').val(nodeData.revision));
+    $currentRow.append($('<td>').val(nodeData.heartbeat));
+    $currentRow.append($('<td>').val(nodeData.state));
 }
