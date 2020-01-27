@@ -1,6 +1,5 @@
 var nodeIp;
 var timeout;
-var $networkStateTable = $("#networkStateTable")
 
 getNodeData = function () {
     $.getJSON(nodeIp + "/networkState", function (networkState) {
@@ -17,7 +16,7 @@ connectToNode = function () {
 updateNetworkStateTable = function (networkState) {
     let action;
     for (ip in networkState) {
-        if ($(ip)[0] === undefined) {
+        if ($('#'+ip)[0] === undefined) {
             action = addNewTableEntry
         }
         else {
@@ -36,7 +35,7 @@ updateExistingEntry = function (ip, nodeData) {
 }
 
 addNewTableEntry = function (ip, nodeData) {
-    $currentRow = $networkStateTable.append($('<tr>').attr('id', ip));
+    $currentRow = $("#networkStateTable").append($('<tr>').attr('id', ip));
     $currentRow.append($('<td>').text(ip));
     $currentRow.append($('<td>').text(nodeData.revision));
     $currentRow.append($('<td>').text(nodeData.heartbeat));
