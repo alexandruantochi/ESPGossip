@@ -1,6 +1,6 @@
 var nodeIp;
 var timeout;
-var $networkStateTable = $("#networkStateTable").find('tbody');
+var $networkStateTable = $("#networkStateTable")
 
 getNodeData = function () {
     $.getJSON(nodeIp + "/networkState", function (networkState) {
